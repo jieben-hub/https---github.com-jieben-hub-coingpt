@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CoinGPT - 区块链行情聊天机器人</title>
+    <!-- Apple Sign In 相关元数据 -->
+    <meta name="appleid-signin-client-id" content="YOUR_CLIENT_ID">
+    <meta name="appleid-signin-scope" content="name email">
+    <meta name="appleid-signin-redirect-uri" content="https://your-redirect-uri.com">
+    <meta name="appleid-signin-state" content="signin">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/markdown-it@12/dist/markdown-it.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-robot"></i> CoinGPT</h1>
+            <p class="subtitle">区块链行情智能分析助手</p>
+            <!-- 用户信息区域 -->
+            <div id="user-info" style="display: none;">
+                <div class="user-details">
+                    <span>ID: <span id="user-name"></span></span>
+                    <span>|会员: <span id="user-membership"></span></span>
+                    <span>|对话数: <span id="dialog-count"></span></span>
+                </div>
+                <div class="user-actions">
+                    <button id="load-sessions" class="btn">会话列表</button>
+                    <button id="new-session" class="btn">新会话</button>
+                    <button id="logout-btn" class="btn">退出</button>
+                </div>
+                <div id="session-info"></div>
+            </div>
+        </header>
+
+        <!-- 登录区域 -->
+        <div id="auth-container" class="auth-container" style="display: none;">
+            <h2>欢迎使用 CoinGPT</h2>
+            <p>请登录以继续使用</p>
+            
+            <!-- 登录表单 -->
+            <div class="auth-tabs">
+                <button id="login-tab" class="auth-tab active">登录</button>
+                <button id="register-tab" class="auth-tab">注册</button>
+            </div>
+            
+            <!-- 登录表单 -->
+            <form id="login-form" class="auth-form">
+                <div class="form-group">
+                    <label for="login-username">用户名</label>
+                    <input type="text" id="login-username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">密码</label>
+                    <input type="password" id="login-password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">登录</button>
+                <p id="login-error" class="error-message"></p>
+            </form>
+            
+            <!-- 注册表单 -->
+            <form id="register-form" class="auth-form" style="display: none;">
+                <div class="form-group">
+                    <label for="register-username">用户名</label>
+                    <input type="text" id="register-username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-password">密码</label>
+                    <input type="password" id="register-password" name="password" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-confirm-password">确认密码</label>
+                    <input type="password" id="register-confirm-password" name="confirm_password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">注册</button>
+                <p id="register-error" class="error-message"></p>
+            </form>
+            
+            <!-- 分隔线 -->
+            <div class="or-divider">
+                <span>或者</span>
+            </div>
+            
+            <!-- Apple登录按钮 -->
+            <div id="appleid-signin" class="signin-button">
+                <div class="appleid-signin-button">
+                    <div class="signin-button-content">
+                        <div id="apple-sign-in" class="apple-signin">
+                            <i class="fab fa-apple"></i> 使用 Apple 登录
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 会话列表面板 -->
+        <div id="sessions-panel" class="sessions-panel" style="display: none;">
+            <div class="panel-header">
+                <h3>会话历史</h3>
+                <button class="close-btn" onclick="document.getElementById('sessions-panel').style.display='none'">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <ul id="session-list" class="session-list">
+                <!-- 会话列表将由JavaScript动态添加 -->
+            </ul>
+        </div>
+
+        <!-- 聊天容器 -->
+        <div id="chat-container" class="chat-container">
+            <div class="chat-messages" id="chat-messages">
+                <!-- 欢迎消息 -->
+                <div class="message bot-message">
+                    <div class="avatar bot-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <p>你好！我是 CoinGPT，你的加密货币行情分析助手。</p>
+                        <p>你可以这样向我提问:</p>
+                        <ul>
+                            <li>"分析一下比特币最近的走势"</li>
+                            <li>"ETH和SOL哪个表现更好？"</li>
+                            <li>"BTC今天4小时图怎么样？"</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div id="loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>正在分析行情数据...</p>
+            </div>
+
+            <div class="chat-input">
+                <textarea id="user-input" placeholder="输入你的问题..." rows="1"></textarea>
+                <div class="button-group">
+                    <button id="clear-button" class="icon-button" title="清除聊天">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                    <button id="send-button" class="send-button">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>&copy; 2025 CoinGPT - 本应用不构成投资建议</p>
+        </footer>
+    </div>
+    
+    <!-- JavaScript 库 -->
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@12/dist/markdown-it.min.js"></script>
+    
+    <!-- 应用脚本 -->
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+</body>
+</html>
