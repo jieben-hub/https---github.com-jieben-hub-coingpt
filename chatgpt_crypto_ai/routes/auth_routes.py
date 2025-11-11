@@ -82,7 +82,13 @@ def apple_login():
     
     # 打印处理结果
     print(f"登录处理结果: {json.dumps(result, ensure_ascii=False, indent=2)}")
-    
+    print({
+        "status": "success",
+        "data": {
+            "user": result,
+            "token": token
+        }
+    })
     # 返回用户信息和token
     return jsonify({
         "status": "success",

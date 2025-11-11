@@ -5,7 +5,7 @@ CoinGPT 数据库模型定义
 import json
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, Float
 from sqlalchemy.orm import relationship
 
 db = SQLAlchemy()
@@ -30,6 +30,7 @@ class User(db.Model):
     invitees = relationship("User", backref="inviter", remote_side=[id])
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     symbols = relationship("UserSymbol", back_populates="user", cascade="all, delete-orphan")
+    exchange_api_keys = relationship("ExchangeApiKey", backref="user", cascade="all, delete-orphan")
 
     def increment_dialog_count(self):
         """增加对话计数"""
@@ -196,4 +197,97 @@ class FeedbackText(db.Model):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    user = relationship("User")
+
+
+class ExchangeApiKey(db.Model):
+    """用户交易所 API Key 表"""
+    __tablename__ = 'exchange_api_keys'
+    
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    exchange = Column(String(50), nullable=False)  # bybit, binance, huobi
+    api_key = Column(Text, nullable=False)  # 加密存储
+    api_secret = Column(Text, nullable=False)  # 加密存储
+    testnet = Column(Integer, default=1, nullable=False)  # 是否测试网，1=是，0=否
+    is_active = Column(Integer, default=1, nullable=False)  # 是否启用，1=是，0=否
+    nickname = Column(String(100), nullable=True)  # 用户自定义昵称
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TradingPnlHistory(db.Model):
+    """历史盈亏记录表 - 记录每次平仓的盈亏情况"""
+    __tablename__ = 'trading_pnl_history'
+    
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.id'), nullable=False)
+    exchange = Column(String(50), nullable=False)
+    symbol = Column(String(50), nullable=False)
+    side = Column(String(10), nullable=False)
+    
+    # 开仓信息
+    open_time = Column(DateTime, nullable=False)
+    open_price = Column(Float, nullable=False)
+    open_size = Column(Float, nullable=False)
+    
+    # 平仓信息
+    close_time = Column(DateTime, nullable=False)
+    close_price = Column(Float, nullable=False)
+    close_size = Column(Float, nullable=False)
+    
+    # 盈亏信息
+    realized_pnl = Column(Float, nullable=False)
+    pnl_percentage = Column(Float, nullable=False)
+    fee = Column(Float, default=0.0)
+    net_pnl = Column(Float, nullable=False)
+    
+    # 其他信息
+    leverage = Column(Float, default=1.0)
+    order_id = Column(String(100), nullable=True)
+    position_id = Column(String(100), nullable=True)
+    
+    # 记录创建时间
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # 关系
+    user = relationship("User")
+
+
+class TradingOrderHistory(db.Model):
+    """交易订单历史记录表 - 记录所有订单的详细信息"""
+    __tablename__ = 'trading_order_history'
+    
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.id'), nullable=False)
+    exchange = Column(String(50), nullable=False)
+    
+    # 订单基本信息
+    order_id = Column(String(100), nullable=False, unique=True)
+    symbol = Column(String(50), nullable=False)
+    side = Column(String(10), nullable=False)
+    order_type = Column(String(20), nullable=False)
+    
+    # 价格和数量
+    quantity = Column(Float, nullable=False)
+    price = Column(Float, nullable=True)
+    filled_quantity = Column(Float, default=0.0)
+    avg_price = Column(Float, nullable=True)
+    
+    # 订单状态
+    status = Column(String(20), nullable=False)
+    
+    # 时间信息
+    order_time = Column(DateTime, nullable=False)
+    update_time = Column(DateTime, nullable=False)
+    
+    # 其他信息
+    fee = Column(Float, default=0.0)
+    leverage = Column(Float, default=1.0)
+    
+    # 记录创建时间
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关系
     user = relationship("User")

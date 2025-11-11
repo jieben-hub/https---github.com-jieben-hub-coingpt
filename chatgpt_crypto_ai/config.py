@@ -36,3 +36,9 @@ USE_REDIS = os.getenv('USE_REDIS', 'False').lower() == 'true'
 
 # 数据库配置
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///coingpt.db')
+
+# 交易配置
+TRADING_EXCHANGE = os.getenv('TRADING_EXCHANGE', 'bybit')  # 默认交易所
+TRADING_API_KEY = os.getenv('TRADING_API_KEY', '')
+TRADING_API_SECRET = os.getenv('TRADING_API_SECRET', '')
+TRADING_TESTNET = os.getenv('TRADING_TESTNET', 'True').lower() == 'true'  # 默认使用测试网

@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional
 
 # 导入数据库模型
 from models import db, SessionFeedback, MessageFeedback
+from utils.utf8_validator import UTF8Validator
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -49,14 +50,14 @@ class FeedbackSystem:
             if rating < 1 or rating > 5:
                 return {"status": "error", "message": "评分必须在1-5之间"}
             
-            # 准备反馈数据
+            # 准备反馈数据并清理UTF-8字符
             feedback_data = {
                 "session_id": session_id,
                 "conversation_id": conversation_id,
                 "user_id": user_id,
                 "rating": rating,
-                "feedback_text": feedback_text,
-                "context": context or {},
+                "feedback_text": UTF8Validator.clean_string(feedback_text) if feedback_text else None,
+                "context": UTF8Validator.validate_json_data(context or {}),
                 "timestamp": datetime.now().isoformat()
             }
             
@@ -86,7 +87,7 @@ class FeedbackSystem:
             filepath = os.path.join(FeedbackSystem.FEEDBACK_DIR, filename)
             
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(feedback_data, f, ensure_ascii=False, indent=2)
+                f.write(UTF8Validator.safe_json_dumps(feedback_data, indent=2))
                 
             logger.info(f"已保存用户反馈到文件: {filepath}")
             
