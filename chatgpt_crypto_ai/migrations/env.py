@@ -7,8 +7,13 @@ from sqlalchemy import engine_from_config, pool
 # 这是Alembic配置，使用时请不要修改。
 config = context.config
 
-# 解析日志配置文件
-fileConfig(config.config_file_name)
+# 解析日志配置文件（如果存在）
+if config.config_file_name:
+    try:
+        fileConfig(config.config_file_name)
+    except KeyError:
+        # 如果配置文件缺少formatters部分，跳过日志配置
+        pass
 
 # 添加模型元数据对象
 from models import db

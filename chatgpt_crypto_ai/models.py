@@ -5,7 +5,7 @@ CoinGPT 数据库模型定义
 import json
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, Float
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey, Float, Boolean
 from sqlalchemy.orm import relationship
 
 db = SQLAlchemy()
@@ -31,6 +31,7 @@ class User(db.Model):
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     symbols = relationship("UserSymbol", back_populates="user", cascade="all, delete-orphan")
     exchange_api_keys = relationship("ExchangeApiKey", backref="user", cascade="all, delete-orphan")
+    subscriptions = relationship("Subscription", back_populates="user", cascade="all, delete-orphan")
 
     def increment_dialog_count(self):
         """增加对话计数"""
@@ -291,3 +292,48 @@ class TradingOrderHistory(db.Model):
     
     # 关系
     user = relationship("User")
+
+
+class Subscription(db.Model):
+    """订阅记录表 - 记录用户的订阅信息"""
+    __tablename__ = 'subscriptions'
+    
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.id'), nullable=False)
+    
+    # 产品信息
+    product_id = Column(String(255), nullable=False)  # 如: dev.zonekit.coingpt.Premium.year
+    product_type = Column(String(50), nullable=False)  # yearly, monthly
+    
+    # 交易信息
+    transaction_id = Column(String(255), nullable=False, unique=True)  # App Store交易ID
+    original_transaction_id = Column(String(255), nullable=False)  # 原始交易ID（用于识别同一订阅）
+    
+    # 时间信息
+    purchase_date = Column(DateTime, nullable=False)  # 购买时间
+    expires_date = Column(DateTime, nullable=False)   # 过期时间
+    
+    # 订阅状态
+    status = Column(String(20), default='active', nullable=False)  # active, expired, cancelled
+    is_trial_period = Column(Boolean, default=False)  # 是否试用期
+    is_in_intro_offer_period = Column(Boolean, default=False)  # 是否优惠期
+    
+    # 自动续期
+    auto_renew_status = Column(Boolean, default=True)  # 是否自动续期
+    
+    # 记录时间
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关系
+    user = relationship("User", back_populates="subscriptions")
+    
+    def is_active(self):
+        """检查订阅是否有效"""
+        return self.status == 'active' and self.expires_date > datetime.utcnow()
+    
+    def days_until_expiry(self):
+        """距离过期还有多少天"""
+        if self.expires_date > datetime.utcnow():
+            return (self.expires_date - datetime.utcnow()).days
+        return 0

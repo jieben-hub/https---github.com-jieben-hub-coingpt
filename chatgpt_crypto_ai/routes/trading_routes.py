@@ -140,6 +140,8 @@ def create_order():
             order_type=data.get('order_type', 'market'),
             price=float(data['price']) if 'price' in data else None,
             position_side=data.get('position_side'),
+            take_profit=float(data['take_profit']) if 'take_profit' in data else None,
+            stop_loss=float(data['stop_loss']) if 'stop_loss' in data else None,
             exchange_name=data.get('exchange')
         )
         

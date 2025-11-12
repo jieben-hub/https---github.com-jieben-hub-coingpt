@@ -10,6 +10,8 @@ from flask_socketio import SocketIO
 import os
 import logging
 import config
+from redis.backoff import ExponentialBackoff
+from redis.retry import Retry
 from routes.chat_routes import chat_bp
 from routes.auth_routes import auth_bp
 from routes.show_prompt import show_prompt_bp
@@ -17,10 +19,392 @@ from routes.feedback_routes import feedback_bp
 from routes.trading_routes import trading_bp
 from routes.exchange_api_routes import exchange_api_bp
 from routes.trading_history_routes import trading_history_bp
+from routes.subscription_routes import subscription_bp
+from routes.admin_subscription_routes import admin_subscription_bp
 from services.trading_websocket_service import init_trading_websocket_service
 from models import db
 
-def create_app():
+
+def setup_socketio(app):
+    """Configure SocketIO and trading WebSocket services."""
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins="*",
+        async_mode='threading',
+        logger=True,
+        engineio_logger=True
+    )
+
+    trading_ws = init_trading_websocket_service(socketio, app)
+    logger = logging.getLogger(__name__)
+
+    @socketio.on('connect')
+    def handle_connect(auth):
+        """处理WebSocket连接，验证JWT token"""
+        print("=" * 60)
+        print(f"🔌 WebSocket连接请求 - 来自: {request.remote_addr}")
+        print(f"📋 Request Headers: {dict(request.headers)}")
+        print(f"📋 Request Args: {dict(request.args)}")
+        print(f"📋 认证参数类型: {type(auth)}")
+        print(f"📋 认证参数内容: {auth}")
+        print("=" * 60)
+
+        try:
+            import jwt
+
+            if auth:
+                print(f"✅ auth 参数存在")
+                print(f"   auth 类型: {type(auth)}")
+                print(f"   auth 内容: {auth}")
+                if isinstance(auth, dict):
+                    print(f"   auth 的键: {list(auth.keys())}")
+                    for key, value in auth.items():
+                        if key == 'token':
+                            print(f"   ✅ 找到 token 字段: {value[:30]}..." if len(value) > 30 else f"   ✅ 找到 token 字段: {value}")
+                        else:
+                            print(f"   其他字段 {key}: {value}")
+            else:
+                print(f"❌ auth 参数为空或None")
+
+            token = None
+
+            if auth and 'token' in auth:
+                token = auth['token']
+                print(f"🔑 从 auth['token'] 获取到token: {token[:30]}...")
+
+            elif 'Authorization' in request.headers:
+                auth_header = request.headers.get('Authorization')
+                print(f"🔑 从 Authorization Header 获取: {auth_header[:50]}...")
+                if auth_header.startswith('Bearer '):
+                    token = auth_header[7:]
+                    print(f"🔑 提取token: {token[:30]}...")
+                else:
+                    token = auth_header
+                    print(f"🔑 直接使用Header值: {token[:30]}...")
+
+            elif hasattr(request, 'args') and request.args.get('token'):
+                token = request.args.get('token')
+                print(f"🔑 从URL参数获取token: {token[:30]}...")
+
+            if not token:
+                print("❌ WebSocket连接被拒绝：缺少token")
+                logger.warning("WebSocket连接被拒绝：缺少token")
+                return False
+
+            try:
+                payload = jwt.decode(token, config.SECRET_KEY, algorithms=['HS256'])
+                user_id = payload.get('sub')
+
+                if not user_id:
+                    print("❌ WebSocket连接被拒绝：token中缺少用户ID")
+                    logger.warning("WebSocket连接被拒绝：token中缺少用户ID")
+                    return False
+
+                session['ws_user_id'] = int(user_id)
+                session['ws_authenticated'] = True
+
+                print(f"✅ WebSocket连接成功 - 用户ID: {user_id}")
+                logger.info(f"WebSocket客户端已连接，用户ID: {user_id}")
+                socketio.emit('connected', {
+                    'message': '连接成功',
+                    'user_id': int(user_id),
+                    'authenticated': True
+                })
+                return True
+
+            except jwt.ExpiredSignatureError:
+                print("❌ WebSocket连接被拒绝：token已过期")
+                logger.warning("WebSocket连接被拒绝：token已过期")
+                return False
+            except jwt.InvalidTokenError:
+                print("❌ WebSocket连接被拒绝：token无效")
+                logger.warning("WebSocket连接被拒绝：token无效")
+                return False
+
+        except Exception as e:
+            print(f"❌ WebSocket连接验证失败: {e}")
+            logger.error(f"WebSocket连接验证失败: {e}")
+            return False
+
+    @socketio.on('disconnect')
+    def handle_disconnect():
+        user_id = None
+        try:
+            from flask_socketio import leave_room
+
+            user_id = session.get('ws_user_id')
+
+            print(f"🔌 WebSocket客户端断开连接 - 来自: {request.remote_addr}")
+            if user_id:
+                print(f"👤 用户{user_id}退出所有房间")
+
+                all_data_types = ['balance', 'positions', 'pnl', 'orders']
+                for data_type in all_data_types:
+                    room = f"{data_type}_{user_id}"
+                    try:
+                        leave_room(room)
+                        print(f"   🚪 退出房间: {room}")
+                    except Exception:
+                        pass
+
+                trading_ws.unsubscribe_user(user_id, all_data_types)
+
+                if trading_ws.ticker_subscribers:
+                    symbols_to_remove = []
+                    for symbol, subscribers in list(trading_ws.ticker_subscribers.items()):
+                        if user_id in subscribers:
+                            symbols_to_remove.append(symbol)
+                            room = f"ticker_{symbol}_{user_id}"
+                            try:
+                                leave_room(room)
+                                print(f"   🚪 退出行情房间: {room}")
+                            except Exception:
+                                pass
+
+                    if symbols_to_remove:
+                        trading_ws.unsubscribe_ticker(user_id, symbols_to_remove)
+
+                from services.trading_service import TradingService
+                TradingService.clear_user_cache(user_id)
+
+                print(f"✅ 用户{user_id}已退出所有房间并清理订阅")
+                logger.info(f"用户{user_id}断开连接并清理所有订阅")
+            else:
+                print(f"⚠️ 未认证用户断开连接")
+
+        except AssertionError as e:
+            if "write() before start_response" in str(e):
+                if user_id:
+                    print(f"✅ 用户{user_id}已断开连接（正常）")
+                else:
+                    print(f"✅ 客户端已断开连接（正常）")
+            else:
+                print(f"⚠️ 断开连接处理出错: {e}")
+        except Exception as e:
+            error_msg = str(e)
+            if "write() before start_response" not in error_msg and "Broken pipe" not in error_msg:
+                print(f"⚠️ 断开连接处理出错: {e}")
+            else:
+                if user_id:
+                    print(f"✅ 用户{user_id}已断开连接（正常）")
+                else:
+                    print(f"✅ 客户端已断开连接（正常）")
+
+    @socketio.on('subscribe_trading')
+    def handle_subscribe_trading(data):
+        print(f"📡 收到订阅请求: {data}")
+        try:
+            if not session.get('ws_authenticated'):
+                print("❌ 订阅失败：用户未认证")
+                socketio.emit('error', {'message': '未认证，请先连接'})
+                return
+
+            user_id = session.get('ws_user_id')
+            data_types = data.get('types') or data.get('subscribeTypes', [])
+
+            print(f"👤 用户ID: {user_id}, 请求订阅: {data_types}")
+            print(f"📋 原始数据字段: {list(data.keys())}")
+
+            if not user_id:
+                print("❌ 订阅失败：用户ID缺失")
+                socketio.emit('error', {'message': '用户未认证'})
+                return
+
+            if not data_types:
+                print("❌ 订阅失败：未指定数据类型")
+                socketio.emit('error', {'message': '请指定订阅的数据类型'})
+                return
+
+            from flask_socketio import join_room, leave_room
+            print(f"🔄 清理用户{user_id}的旧订阅...")
+
+            for data_type in ['balance', 'positions', 'pnl', 'orders']:
+                room = f"{data_type}_{user_id}"
+                try:
+                    leave_room(room)
+                except Exception:
+                    pass
+
+            trading_ws.unsubscribe_user(user_id, ['balance', 'positions', 'pnl', 'orders'])
+
+            for data_type in data_types:
+                room = f"{data_type}_{user_id}"
+                join_room(room)
+                print(f"🚪 客户端加入房间: {room}")
+
+            trading_ws.subscribe_user(user_id, data_types)
+            socketio.emit('subscribed', {
+                'user_id': user_id,
+                'types': data_types,
+                'status': 'success'
+            })
+            print(f"✅ 订阅成功 - 用户{user_id}订阅了: {data_types}")
+            logger.info(f"用户{user_id}订阅了交易数据: {data_types}")
+
+        except Exception as e:
+            print(f"❌ 处理订阅失败: {e}")
+            logger.error(f"处理交易订阅失败: {e}")
+            socketio.emit('error', {'message': '订阅失败'})
+
+    @socketio.on('unsubscribe_trading')
+    def handle_unsubscribe_trading(data):
+        print(f"📡 收到取消订阅请求: {data}")
+        try:
+            if not session.get('ws_authenticated'):
+                print("❌ 取消订阅失败：用户未认证")
+                socketio.emit('error', {'message': '未认证，请先连接'})
+                return
+
+            user_id = session.get('ws_user_id')
+            data_types = data.get('types') or data.get('subscribeTypes', [])
+
+            print(f"👤 用户ID: {user_id}, 请求取消订阅: {data_types}")
+            print(f"📋 原始数据字段: {list(data.keys())}")
+
+            if not user_id:
+                print("❌ 取消订阅失败：用户ID缺失")
+                socketio.emit('error', {'message': '用户未认证'})
+                return
+
+            if not data_types:
+                print("❌ 取消订阅失败：未指定数据类型")
+                socketio.emit('error', {'message': '请指定要取消订阅的数据类型'})
+                return
+
+            from flask_socketio import leave_room
+            for data_type in data_types:
+                room = f"{data_type}_{user_id}"
+                leave_room(room)
+                print(f"🚪 客户端离开房间: {room}")
+
+            trading_ws.unsubscribe_user(user_id, data_types)
+            socketio.emit('unsubscribed', {
+                'user_id': user_id,
+                'types': data_types,
+                'status': 'success'
+            })
+            print(f"✅ 取消订阅成功 - 用户{user_id}取消了: {data_types}")
+            logger.info(f"用户{user_id}取消订阅了交易数据: {data_types}")
+
+        except Exception as e:
+            print(f"❌ 处理取消订阅失败: {e}")
+            logger.error(f"处理取消订阅失败: {e}")
+            socketio.emit('error', {'message': '取消订阅失败'})
+
+    @socketio.on('subscribe_ticker')
+    def handle_subscribe_ticker(data):
+        print(f"📊 收到行情订阅请求: {data}")
+        try:
+            from flask_socketio import join_room, leave_room
+
+            if not session.get('ws_authenticated'):
+                print("❌ 订阅失败：用户未认证")
+                socketio.emit('error', {'message': '未认证，请先连接'})
+                return
+
+            user_id = session.get('ws_user_id')
+            symbols = data.get('symbols', [])
+
+            print(f"👤 用户ID: {user_id}, 请求订阅行情: {symbols}")
+
+            if not user_id:
+                print("❌ 订阅失败：用户ID缺失")
+                socketio.emit('error', {'message': '用户未认证'})
+                return
+
+            if not symbols:
+                print("❌ 订阅失败：未指定交易对")
+                socketio.emit('error', {'message': '请指定要订阅的交易对'})
+                return
+
+            print(f"🔄 清理用户{user_id}的旧行情订阅...")
+
+            if trading_ws.ticker_subscribers:
+                old_symbols = []
+                for symbol, subscribers in list(trading_ws.ticker_subscribers.items()):
+                    if user_id in subscribers:
+                        old_symbols.append(symbol)
+                        room = f"ticker_{symbol}_{user_id}"
+                        try:
+                            leave_room(room)
+                        except Exception:
+                            pass
+
+                if old_symbols:
+                    trading_ws.unsubscribe_ticker(user_id, old_symbols)
+
+            for symbol in symbols:
+                room = f"ticker_{symbol}_{user_id}"
+                join_room(room)
+                print(f"🚪 客户端加入房间: {room}")
+
+            trading_ws.subscribe_ticker(user_id, symbols)
+            socketio.emit('ticker_subscribed', {
+                'user_id': user_id,
+                'symbols': symbols,
+                'status': 'success'
+            })
+            print(f"✅ 行情订阅成功 - 用户{user_id}订阅了: {symbols}")
+            logger.info(f"用户{user_id}订阅了行情: {symbols}")
+
+        except Exception as e:
+            print(f"❌ 处理行情订阅失败: {e}")
+            logger.error(f"处理行情订阅失败: {e}")
+            socketio.emit('error', {'message': '行情订阅失败'})
+
+    @socketio.on('unsubscribe_ticker')
+    def handle_unsubscribe_ticker(data):
+        print(f"📊 收到取消行情订阅请求: {data}")
+        try:
+            from flask_socketio import leave_room
+
+            if not session.get('ws_authenticated'):
+                print("❌ 取消订阅失败：用户未认证")
+                socketio.emit('error', {'message': '未认证，请先连接'})
+                return
+
+            user_id = session.get('ws_user_id')
+            symbols = data.get('symbols', [])
+
+            print(f"👤 用户ID: {user_id}, 请求取消订阅行情: {symbols}")
+
+            if not user_id:
+                print("❌ 取消订阅失败：用户ID缺失")
+                socketio.emit('error', {'message': '用户未认证'})
+                return
+
+            if not symbols:
+                print("❌ 取消订阅失败：未指定交易对")
+                socketio.emit('error', {'message': '请指定要取消订阅的交易对'})
+                return
+
+            for symbol in symbols:
+                room = f"ticker_{symbol}_{user_id}"
+                leave_room(room)
+                print(f"🚪 客户端离开房间: {room}")
+
+            trading_ws.unsubscribe_ticker(user_id, symbols)
+            socketio.emit('ticker_unsubscribed', {
+                'user_id': user_id,
+                'symbols': symbols,
+                'status': 'success'
+            })
+            print(f"✅ 取消行情订阅成功 - 用户{user_id}取消了: {symbols}")
+            logger.info(f"用户{user_id}取消订阅了行情: {symbols}")
+
+        except Exception as e:
+            print(f"❌ 处理取消行情订阅失败: {e}")
+            logger.error(f"处理取消行情订阅失败: {e}")
+            socketio.emit('error', {'message': '取消行情订阅失败'})
+
+    trading_ws.start_service()
+    app.socketio = socketio
+    app.trading_ws = trading_ws
+
+    return socketio, trading_ws
+
+
+def create_app(enable_socketio: bool = True):
     """创建并配置Flask应用"""
     app = Flask(__name__, instance_relative_config=True)
     
@@ -54,23 +438,30 @@ def create_app():
         PERMANENT_SESSION_LIFETIME=timedelta(days=7),
         SQLALCHEMY_DATABASE_URI=config.DATABASE_URL,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        # 数据库连接池配置
-        SQLALCHEMY_ENGINE_OPTIONS={
-            'pool_size': 10,
-            'pool_recycle': 3600,  # 1小时回收连接
-            'pool_pre_ping': True,  # 连接前先ping检查
-            'max_overflow': 20,
-            'pool_timeout': 30,
-        }
+        SQLALCHEMY_ENGINE_OPTIONS=config.SQLALCHEMY_ENGINE_OPTIONS,
     )
     
     # 设置会话存储
     if config.USE_REDIS:
         from redis import Redis
         from flask_session import Session
-        
+
+        retry_strategy = Retry(
+            ExponentialBackoff(cap=max(2, config.REDIS_HEALTH_CHECK_INTERVAL // 2 or 1), base=1),
+            retries=config.REDIS_MAX_RETRIES,
+        )
+
         # 配置Redis连接
-        redis_client = Redis.from_url(config.REDIS_URL, password=config.REDIS_PASSWORD)
+        redis_client = Redis.from_url(
+            config.REDIS_URL,
+            password=config.REDIS_PASSWORD,
+            socket_timeout=config.REDIS_SOCKET_TIMEOUT,
+            socket_connect_timeout=config.REDIS_SOCKET_CONNECT_TIMEOUT,
+            health_check_interval=config.REDIS_HEALTH_CHECK_INTERVAL,
+            socket_keepalive=True,
+            retry_on_timeout=True,
+            retry=retry_strategy,
+        )
         app.config['SESSION_TYPE'] = 'redis'
         app.config['SESSION_REDIS'] = redis_client
         Session(app)
@@ -109,6 +500,16 @@ def create_app():
     app.register_blueprint(trading_bp)
     app.register_blueprint(exchange_api_bp)
     app.register_blueprint(trading_history_bp)
+    app.register_blueprint(subscription_bp)
+    app.register_blueprint(admin_subscription_bp)
+    
+    # 初始化管理员模块
+    try:
+        from admin import init_admin_routes
+        init_admin_routes(app)
+        app.logger.info('管理员模块初始化成功')
+    except Exception as e:
+        app.logger.error(f'管理员模块初始化失败: {str(e)}')
     
     # 打印所有已注册的路由
     app.logger.info('已注册的路由:')
@@ -137,452 +538,15 @@ def create_app():
     @app.errorhandler(500)
     def server_error(e):
         return jsonify({"error": "服务器内部错误"}), 500
-    
-    # 初始化SocketIO
-    socketio = SocketIO(
-        app, 
-        cors_allowed_origins="*",
-        async_mode='threading',
-        logger=True,  # 开启SocketIO日志
-        engineio_logger=True  # 开启EngineIO日志
-    )
-    
-    # 初始化交易WebSocket服务，传递app实例以支持应用上下文
-    trading_ws = init_trading_websocket_service(socketio, app)
-    
-    # 获取logger实例
-    logger = logging.getLogger(__name__)
-    
-    # WebSocket事件处理
-    @socketio.on('connect')
-    def handle_connect(auth):
-        """处理WebSocket连接，验证JWT token"""
-        print("=" * 60)
-        print(f"🔌 WebSocket连接请求 - 来自: {request.remote_addr}")
-        print(f"📋 Request Headers: {dict(request.headers)}")
-        print(f"📋 Request Args: {dict(request.args)}")
-        print(f"📋 认证参数类型: {type(auth)}")
-        print(f"📋 认证参数内容: {auth}")
-        print("=" * 60)
-        
-        try:
-            import jwt
-            
-            # 打印详细的认证信息
-            if auth:
-                print(f"✅ auth 参数存在")
-                print(f"   auth 类型: {type(auth)}")
-                print(f"   auth 内容: {auth}")
-                if isinstance(auth, dict):
-                    print(f"   auth 的键: {list(auth.keys())}")
-                    for key, value in auth.items():
-                        if key == 'token':
-                            print(f"   ✅ 找到 token 字段: {value[:30]}..." if len(value) > 30 else f"   ✅ 找到 token 字段: {value}")
-                        else:
-                            print(f"   其他字段 {key}: {value}")
-            else:
-                print(f"❌ auth 参数为空或None")
-            
-            # 获取token - 支持多种方式
-            token = None
-            
-            # 方式1: 从 auth 参数获取（Socket.IO标准方式）
-            if auth and 'token' in auth:
-                token = auth['token']
-                print(f"🔑 从 auth['token'] 获取到token: {token[:30]}...")
-            
-            # 方式2: 从 Authorization Header 获取
-            elif 'Authorization' in request.headers:
-                auth_header = request.headers.get('Authorization')
-                print(f"🔑 从 Authorization Header 获取: {auth_header[:50]}...")
-                if auth_header.startswith('Bearer '):
-                    token = auth_header[7:]  # 移除 'Bearer ' 前缀
-                    print(f"🔑 提取token: {token[:30]}...")
-                else:
-                    token = auth_header
-                    print(f"🔑 直接使用Header值: {token[:30]}...")
-            
-            # 方式3: 从 URL 参数获取
-            elif hasattr(request, 'args') and request.args.get('token'):
-                token = request.args.get('token')
-                print(f"🔑 从URL参数获取token: {token[:30]}...")
-            
-            if not token:
-                print("❌ WebSocket连接被拒绝：缺少token")
-                logger.warning("WebSocket连接被拒绝：缺少token")
-                return False  # 拒绝连接
-            
-            # 验证JWT token
-            try:
-                payload = jwt.decode(token, config.SECRET_KEY, algorithms=['HS256'])
-                user_id = payload.get('sub')
-                
-                if not user_id:
-                    print("❌ WebSocket连接被拒绝：token中缺少用户ID")
-                    logger.warning("WebSocket连接被拒绝：token中缺少用户ID")
-                    return False
-                
-                # 将用户信息存储到session中
-                from flask import session
-                session['ws_user_id'] = int(user_id)
-                session['ws_authenticated'] = True
-                
-                print(f"✅ WebSocket连接成功 - 用户ID: {user_id}")
-                logger.info(f"WebSocket客户端已连接，用户ID: {user_id}")
-                socketio.emit('connected', {
-                    'message': '连接成功',
-                    'user_id': int(user_id),
-                    'authenticated': True
-                })
-                return True  # 允许连接
-                
-            except jwt.ExpiredSignatureError:
-                print("❌ WebSocket连接被拒绝：token已过期")
-                logger.warning("WebSocket连接被拒绝：token已过期")
-                return False
-            except jwt.InvalidTokenError:
-                print("❌ WebSocket连接被拒绝：token无效")
-                logger.warning("WebSocket连接被拒绝：token无效")
-                return False
-                
-        except Exception as e:
-            print(f"❌ WebSocket连接验证失败: {e}")
-            logger.error(f"WebSocket连接验证失败: {e}")
-            return False
-    
-    @socketio.on('disconnect')
-    def handle_disconnect():
-        user_id = None
-        try:
-            from flask import session
-            from flask_socketio import leave_room
-            
-            user_id = session.get('ws_user_id')
-            
-            print(f"🔌 WebSocket客户端断开连接 - 来自: {request.remote_addr}")
-            if user_id:
-                print(f"👤 用户{user_id}退出所有房间")
-                
-                # 离开所有交易数据房间
-                all_data_types = ['balance', 'positions', 'pnl', 'orders']
-                for data_type in all_data_types:
-                    room = f"{data_type}_{user_id}"
-                    try:
-                        leave_room(room)
-                        print(f"   🚪 退出房间: {room}")
-                    except:
-                        pass
-                
-                # 自动取消所有订阅
-                trading_ws.unsubscribe_user(user_id, all_data_types)
-                
-                # 离开并取消行情订阅
-                if trading_ws.ticker_subscribers:
-                    symbols_to_remove = []
-                    for symbol, subscribers in list(trading_ws.ticker_subscribers.items()):
-                        if user_id in subscribers:
-                            symbols_to_remove.append(symbol)
-                            room = f"ticker_{symbol}_{user_id}"
-                            try:
-                                leave_room(room)
-                                print(f"   🚪 退出行情房间: {room}")
-                            except:
-                                pass
-                    
-                    if symbols_to_remove:
-                        trading_ws.unsubscribe_ticker(user_id, symbols_to_remove)
-                
-                # 清除交易所实例缓存
-                from services.trading_service import TradingService
-                TradingService.clear_user_cache(user_id)
-                
-                print(f"✅ 用户{user_id}已退出所有房间并清理订阅")
-                logger.info(f"用户{user_id}断开连接并清理所有订阅")
-            else:
-                print(f"⚠️ 未认证用户断开连接")
-            
-        except AssertionError as e:
-            # 忽略 write() before start_response 错误
-            if "write() before start_response" in str(e):
-                if user_id:
-                    print(f"✅ 用户{user_id}已断开连接（正常）")
-                else:
-                    print(f"✅ 客户端已断开连接（正常）")
-            else:
-                print(f"⚠️ 断开连接处理出错: {e}")
-        except Exception as e:
-            # 忽略其他断开连接时的错误
-            error_msg = str(e)
-            if "write() before start_response" not in error_msg and "Broken pipe" not in error_msg:
-                print(f"⚠️ 断开连接处理出错: {e}")
-            else:
-                if user_id:
-                    print(f"✅ 用户{user_id}已断开连接（正常）")
-                else:
-                    print(f"✅ 客户端已断开连接（正常）")
-    
-    @socketio.on('subscribe_trading')
-    def handle_subscribe_trading(data):
-        """处理交易数据订阅 - 需要认证"""
-        print(f"📡 收到订阅请求: {data}")
-        try:
-            from flask import session
-            
-            # 检查用户是否已认证
-            if not session.get('ws_authenticated'):
-                print("❌ 订阅失败：用户未认证")
-                socketio.emit('error', {'message': '未认证，请先连接'})
-                return
-            
-            # 从session获取用户ID，而不是从客户端数据
-            user_id = session.get('ws_user_id')
-            
-            # 支持多种字段名：types 或 subscribeTypes
-            data_types = data.get('types') or data.get('subscribeTypes', [])
-            
-            print(f"👤 用户ID: {user_id}, 请求订阅: {data_types}")
-            print(f"📋 原始数据字段: {list(data.keys())}")
-            
-            if not user_id:
-                print("❌ 订阅失败：用户ID缺失")
-                socketio.emit('error', {'message': '用户未认证'})
-                return
-            
-            if not data_types:
-                print("❌ 订阅失败：未指定数据类型")
-                socketio.emit('error', {'message': '请指定订阅的数据类型'})
-                return
-            
-            # 验证数据类型
-            valid_types = ['balance', 'positions', 'pnl', 'orders']
-            invalid_types = [t for t in data_types if t not in valid_types]
-            if invalid_types:
-                print(f"❌ 订阅失败：无效的数据类型 {invalid_types}")
-                socketio.emit('error', {
-                    'message': f'无效的数据类型: {invalid_types}',
-                    'valid_types': valid_types
-                })
-                return
-            
-            # 先清理旧的订阅（如果存在）
-            from flask_socketio import join_room, leave_room
-            print(f"🔄 清理用户{user_id}的旧订阅...")
-            
-            # 离开所有旧房间
-            for data_type in valid_types:
-                room = f"{data_type}_{user_id}"
-                try:
-                    leave_room(room)
-                except:
-                    pass
-            
-            # 清理订阅状态
-            trading_ws.unsubscribe_user(user_id, valid_types)
-            
-            # 将客户端加入对应的Socket.IO房间
-            for data_type in data_types:
-                room = f"{data_type}_{user_id}"
-                join_room(room)
-                print(f"🚪 客户端加入房间: {room}")
-            
-            # 执行订阅
-            trading_ws.subscribe_user(user_id, data_types)
-            socketio.emit('subscribed', {
-                'user_id': user_id,
-                'types': data_types,
-                'status': 'success'
-            })
-            print(f"✅ 订阅成功 - 用户{user_id}订阅了: {data_types}")
-            logger.info(f"用户{user_id}订阅了交易数据: {data_types}")
-            
-        except Exception as e:
-            print(f"❌ 处理订阅失败: {e}")
-            logger.error(f"处理交易订阅失败: {e}")
-            socketio.emit('error', {'message': '订阅失败'})
-    
-    @socketio.on('unsubscribe_trading')
-    def handle_unsubscribe_trading(data):
-        """处理取消交易数据订阅 - 需要认证"""
-        print(f"📡 收到取消订阅请求: {data}")
-        try:
-            from flask import session
-            
-            # 检查用户是否已认证
-            if not session.get('ws_authenticated'):
-                print("❌ 取消订阅失败：用户未认证")
-                socketio.emit('error', {'message': '未认证，请先连接'})
-                return
-            
-            # 从session获取用户ID
-            user_id = session.get('ws_user_id')
-            
-            # 支持多种字段名：types 或 subscribeTypes
-            data_types = data.get('types') or data.get('subscribeTypes', [])
-            
-            print(f"👤 用户ID: {user_id}, 请求取消订阅: {data_types}")
-            print(f"📋 原始数据字段: {list(data.keys())}")
-            
-            if not user_id:
-                print("❌ 取消订阅失败：用户ID缺失")
-                socketio.emit('error', {'message': '用户未认证'})
-                return
-            
-            if not data_types:
-                print("❌ 取消订阅失败：未指定数据类型")
-                socketio.emit('error', {'message': '请指定要取消订阅的数据类型'})
-                return
-            
-            # 让客户端离开对应的Socket.IO房间
-            from flask_socketio import leave_room
-            for data_type in data_types:
-                room = f"{data_type}_{user_id}"
-                leave_room(room)
-                print(f"🚪 客户端离开房间: {room}")
-            
-            # 执行取消订阅
-            trading_ws.unsubscribe_user(user_id, data_types)
-            socketio.emit('unsubscribed', {
-                'user_id': user_id,
-                'types': data_types,
-                'status': 'success'
-            })
-            print(f"✅ 取消订阅成功 - 用户{user_id}取消了: {data_types}")
-            logger.info(f"用户{user_id}取消订阅了交易数据: {data_types}")
-            
-        except Exception as e:
-            print(f"❌ 处理取消订阅失败: {e}")
-            logger.error(f"处理取消订阅失败: {e}")
-            socketio.emit('error', {'message': '取消订阅失败'})
-    
-    @socketio.on('subscribe_ticker')
-    def handle_subscribe_ticker(data):
-        """处理行情订阅 - 需要认证"""
-        print(f"📊 收到行情订阅请求: {data}")
-        try:
-            from flask import session
-            from flask_socketio import join_room
-            
-            # 检查用户是否已认证
-            if not session.get('ws_authenticated'):
-                print("❌ 订阅失败：用户未认证")
-                socketio.emit('error', {'message': '未认证，请先连接'})
-                return
-            
-            # 从session获取用户ID
-            user_id = session.get('ws_user_id')
-            
-            # 获取交易对列表
-            symbols = data.get('symbols', [])
-            
-            print(f"👤 用户ID: {user_id}, 请求订阅行情: {symbols}")
-            
-            if not user_id:
-                print("❌ 订阅失败：用户ID缺失")
-                socketio.emit('error', {'message': '用户未认证'})
-                return
-            
-            if not symbols:
-                print("❌ 订阅失败：未指定交易对")
-                socketio.emit('error', {'message': '请指定要订阅的交易对'})
-                return
-            
-            # 先清理该用户的旧行情订阅
-            from flask_socketio import leave_room
-            print(f"🔄 清理用户{user_id}的旧行情订阅...")
-            
-            if trading_ws.ticker_subscribers:
-                old_symbols = []
-                for symbol, subscribers in list(trading_ws.ticker_subscribers.items()):
-                    if user_id in subscribers:
-                        old_symbols.append(symbol)
-                        room = f"ticker_{symbol}_{user_id}"
-                        try:
-                            leave_room(room)
-                        except:
-                            pass
-                
-                if old_symbols:
-                    trading_ws.unsubscribe_ticker(user_id, old_symbols)
-            
-            # 将客户端加入对应的Socket.IO房间
-            for symbol in symbols:
-                room = f"ticker_{symbol}_{user_id}"
-                join_room(room)
-                print(f"🚪 客户端加入房间: {room}")
-            
-            # 执行订阅
-            trading_ws.subscribe_ticker(user_id, symbols)
-            socketio.emit('ticker_subscribed', {
-                'user_id': user_id,
-                'symbols': symbols,
-                'status': 'success'
-            })
-            print(f"✅ 行情订阅成功 - 用户{user_id}订阅了: {symbols}")
-            logger.info(f"用户{user_id}订阅了行情: {symbols}")
-            
-        except Exception as e:
-            print(f"❌ 处理行情订阅失败: {e}")
-            logger.error(f"处理行情订阅失败: {e}")
-            socketio.emit('error', {'message': '行情订阅失败'})
-    
-    @socketio.on('unsubscribe_ticker')
-    def handle_unsubscribe_ticker(data):
-        """处理取消行情订阅 - 需要认证"""
-        print(f"📊 收到取消行情订阅请求: {data}")
-        try:
-            from flask import session
-            from flask_socketio import leave_room
-            
-            # 检查用户是否已认证
-            if not session.get('ws_authenticated'):
-                print("❌ 取消订阅失败：用户未认证")
-                socketio.emit('error', {'message': '未认证，请先连接'})
-                return
-            
-            # 从session获取用户ID
-            user_id = session.get('ws_user_id')
-            symbols = data.get('symbols', [])
-            
-            print(f"👤 用户ID: {user_id}, 请求取消订阅行情: {symbols}")
-            
-            if not user_id:
-                print("❌ 取消订阅失败：用户ID缺失")
-                socketio.emit('error', {'message': '用户未认证'})
-                return
-            
-            if not symbols:
-                print("❌ 取消订阅失败：未指定交易对")
-                socketio.emit('error', {'message': '请指定要取消订阅的交易对'})
-                return
-            
-            # 让客户端离开对应的Socket.IO房间
-            for symbol in symbols:
-                room = f"ticker_{symbol}_{user_id}"
-                leave_room(room)
-                print(f"🚪 客户端离开房间: {room}")
-            
-            # 执行取消订阅
-            trading_ws.unsubscribe_ticker(user_id, symbols)
-            socketio.emit('ticker_unsubscribed', {
-                'user_id': user_id,
-                'symbols': symbols,
-                'status': 'success'
-            })
-            print(f"✅ 取消行情订阅成功 - 用户{user_id}取消了: {symbols}")
-            logger.info(f"用户{user_id}取消订阅了行情: {symbols}")
-            
-        except Exception as e:
-            print(f"❌ 处理取消行情订阅失败: {e}")
-            logger.error(f"处理取消行情订阅失败: {e}")
-            socketio.emit('error', {'message': '取消行情订阅失败'})
-    
-    # 启动交易WebSocket服务
-    trading_ws.start_service()
-    
-    # 将实例附加到app
-    app.socketio = socketio
-    app.trading_ws = trading_ws
-    
+
+    if enable_socketio:
+        socketio, trading_ws = setup_socketio(app)
+        app.socketio = socketio
+        app.trading_ws = trading_ws
+    else:
+        app.socketio = None
+        app.trading_ws = None
+
     return app
 
 # if __name__ == '__main__':

@@ -33,73 +33,7 @@ GET /api/trading/symbols
 
 ## 📊 响应格式
 
-### 1. 获取所有信息（默认）
-
-**请求**：
-```bash
-GET /api/trading/symbols
-# 或
-GET /api/trading/symbols?type=all
-```
-
-**响应**：
-```json
-{
-    "status": "success",
-    "data": {
-        "base_symbols": [
-            "BTC",
-            "ETH",
-            "SOL",
-            "DOGE",
-            ...
-        ],
-        "trading_pairs": [
-            "BTCUSDT",
-            "ETHUSDT",
-            "SOLUSDT",
-            "DOGEUSDT",
-            ...
-        ],
-        "count": {
-            "base_symbols": 441,
-            "trading_pairs": 1604
-        }
-    }
-}
-```
-
-### 2. 只获取基础币种
-
-**请求**：
-```bash
-GET /api/trading/symbols?type=base
-```
-
-**响应**：
-```json
-{
-    "status": "success",
-    "data": {
-        "symbols": [
-            "BTC",
-            "ETH",
-            "SOL",
-            "DOGE",
-            "XRP",
-            "ADA",
-            "AVAX",
-            "DOT",
-            "MATIC",
-            "LINK",
-            ...
-        ],
-        "count": 441
-    }
-}
-```
-
-### 3. 只获取交易对
+### 1. 只获取交易对
 
 **请求**：
 ```bash
@@ -128,6 +62,77 @@ GET /api/trading/symbols?type=pairs
     }
 }
 ```
+
+
+### 获取交易对实时行情
+
+```
+GET /api/trading/ticker
+```
+
+**说明**：获取指定交易对的实时行情数据。
+
+**认证**：需要JWT token
+
+## 🔧 请求参数
+
+### Headers
+
+| 参数 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| Authorization | string | 是 | Bearer {jwt_token} |
+
+### Query Parameters
+
+| 参数 | 类型 | 必需 | 说明 | 示例 |
+|------|------|------|------|------|
+| symbol | string | 是 | 交易对符号 | BTCUSDT |
+| exchange | string | 否 | 交易所名称 | bybit |
+
+## 📊 响应格式
+
+### 成功响应
+
+```json
+{
+    "status": "success",
+    "data": {
+        "symbol": "BTCUSDT",
+        "last_price": 106333.5,
+        "bid_price": 106333.0,
+        "ask_price": 106334.0,
+        "high_24h": 107000.0,
+        "low_24h": 105000.0,
+        "volume_24h": 12345.67,
+        "change_24h": 2.5,
+        "timestamp": "2025-11-10T09:45:00"
+    }
+}
+```
+
+### 字段说明
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| symbol | string | 交易对符号 |
+| last_price | float | 最新成交价 |
+| bid_price | float | 买一价 |
+| ask_price | float | 卖一价 |
+| high_24h | float | 24小时最高价 |
+| low_24h | float | 24小时最低价 |
+| volume_24h | float | 24小时成交量 |
+| change_24h | float | 24小时涨跌幅（%） |
+| timestamp | string | 时间戳 |
+
+### 错误响应
+
+```json
+{
+    "status": "error",
+    "message": "缺少必填参数: symbol"
+}
+```
+
 
 ## 💡 使用场景
 

@@ -157,6 +157,8 @@ class TradingService:
         order_type: str = "market",
         price: Optional[float] = None,
         position_side: Optional[str] = None,
+        take_profit: Optional[float] = None,
+        stop_loss: Optional[float] = None,
         exchange_name: str = None
     ) -> Dict[str, Any]:
         """
@@ -190,7 +192,9 @@ class TradingService:
                     symbol=symbol,
                     side=order_side,
                     quantity=quantity,
-                    position_side=pos_side
+                    position_side=pos_side,
+                    take_profit=take_profit,
+                    stop_loss=stop_loss
                 )
             elif order_type.lower() == "limit":
                 if price is None:
@@ -200,7 +204,9 @@ class TradingService:
                     side=order_side,
                     quantity=quantity,
                     price=price,
-                    position_side=pos_side
+                    position_side=pos_side,
+                    take_profit=take_profit,
+                    stop_loss=stop_loss
                 )
             else:
                 raise ValueError(f"不支持的订单类型: {order_type}")
@@ -271,8 +277,41 @@ class TradingService:
         """平仓"""
         try:
             exchange = cls.get_exchange(user_id=user_id, exchange_name=exchange_name)
+            
+            # 获取平仓前的持仓信息
+            positions = exchange.get_positions(symbol)
+            position_data = None
+            for pos in positions:
+                if pos.get('side', '').lower() == position_side.lower():
+                    position_data = pos
+                    break
+            
+            # 执行平仓
             pos_side = PositionSide.LONG if position_side.lower() == "long" else PositionSide.SHORT
             result = exchange.close_position(symbol, pos_side)
+            
+            # 记录平仓到数据库
+            if position_data and result.get('status') == 'success':
+                try:
+                    from services.trading_history_service import TradingHistoryService
+                    from datetime import datetime
+                    
+                    close_price = float(result.get('price', 0))
+                    close_size = float(position_data.get('size', 0))
+                    
+                    TradingHistoryService.record_position_close(
+                        user_id=user_id,
+                        exchange=exchange_name or 'bybit',
+                        position_data=position_data,
+                        close_price=close_price,
+                        close_size=close_size,
+                        close_time=datetime.utcnow()
+                    )
+                    logger.info(f"平仓记录已保存到数据库: {symbol} {position_side}")
+                except Exception as e:
+                    logger.error(f"保存平仓记录失败: {e}")
+                    # 不影响平仓操作的成功返回
+            
             logger.info(f"平仓成功: {symbol} {position_side}")
             return result
         except Exception as e:

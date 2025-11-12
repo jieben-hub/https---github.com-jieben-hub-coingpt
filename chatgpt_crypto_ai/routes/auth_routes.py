@@ -146,8 +146,8 @@ def get_user_sessions():
         
         session_data.append({
             "session_id": sess.id,
-            "created_at": sess.created_at.isoformat(),
-            "updated_at": sess.updated_at.isoformat(),
+            "created_at": sess.created_at.isoformat() if sess.created_at else None,
+            "updated_at": sess.updated_at.isoformat() if sess.updated_at else None,
             "last_symbol": sess.last_symbol,
             "preview": preview
         })

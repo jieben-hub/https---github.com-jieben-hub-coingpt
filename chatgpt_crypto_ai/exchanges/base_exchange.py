@@ -79,7 +79,9 @@ class BaseExchange(ABC):
         symbol: str,
         side: OrderSide,
         quantity: float,
-        position_side: Optional[PositionSide] = None
+        position_side: Optional[PositionSide] = None,
+        take_profit: Optional[float] = None,
+        stop_loss: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         创建市价单
@@ -109,7 +111,9 @@ class BaseExchange(ABC):
         side: OrderSide,
         quantity: float,
         price: float,
-        position_side: Optional[PositionSide] = None
+        position_side: Optional[PositionSide] = None,
+        take_profit: Optional[float] = None,
+        stop_loss: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         创建限价单

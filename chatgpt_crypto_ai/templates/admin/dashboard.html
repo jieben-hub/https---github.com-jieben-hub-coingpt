@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员仪表盘 - CoinGPT</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="/templates/admin/assets/css/admin.css" rel="stylesheet">
+        }
+        .navbar {
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card {
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+        .card-title {
+            color: #495057;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        .card-value {
+            font-size: 28px;
+            font-weight: 600;
+            color: #007bff;
+        }
+        .card-footer {
+            background-color: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+        }
+        .btn-logout {
+            color: #dc3545;
+            border-color: #dc3545;
+        }
+        .btn-logout:hover {
+            background-color: #dc3545;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- 侧边栏 -->
+    <div class="sidebar">
+        <div class="sidebar-header">CoinGPT 管理后台</div>
+        <a href="#dashboard" class="active" data-target="dashboard-content">
+            <i class="bi bi-house-door mr-2"></i> 仪表盘
+        </a>
+        <a href="#users" data-target="users-content">
+            <i class="bi bi-people mr-2"></i> 用户管理
+        </a>
+        <a href="#announcements" data-target="announcements-content">
+            <i class="bi bi-bullhorn mr-2"></i> 公告管理
+        </a>
+        <a href="#activities" data-target="activities-content">
+            <i class="bi bi-calendar-event mr-2"></i> 活动管理
+        </a>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="main-content">
+        <!-- 导航栏 -->
+        <nav class="navbar navbar-expand-lg navbar-light mb-4">
+            <div class="container-fluid">
+                <h2 class="navbar-brand mb-0">管理员仪表盘</h2>
+                <div class="ml-auto">
+                    <button id="logout-btn" class="btn btn-outline btn-logout">退出登录</button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 仪表盘内容 --<div id="dashboard-content" class="content-section active">
+            <div class="row mb-4">
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">总用户数</h5>
+                            <p class="card-value mt-2" id="total-users">--</p>
+                        </div>
+                        <div class="card-footer text-muted">
+                            <small>今日新增: <span id="new-users">0</span></small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">活跃公告</h5>
+                            <p class="card-value mt-2" id="active-announcements">--</p>
+                        </div>
+                        <div class="card-footer text-muted">
+                            <small>总公告数: <span id="total-announcements">0</span></small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">进行中活动</h5>
+                            <p class="card-value mt-2" id="active-activities">--</p>
+                        </div>
+                        <div class="card-footer text-muted">
+                            <small>总活动数: <span id="total-activities">0</span></small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">会员用户数</h5>
+                            <p class="card-value mt-2" id="premium-users">--</p>
+                        </div>
+                        <div class="card-footer text-muted">
+                            <small>会员比例: <span id="premium-rate">0%</span></small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">最近注册用户</h5>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>用户名</th>
+                                        <th>注册时间</th>
+                                        <th>会员等级</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-users-table">
+                                    <tr>
+                                        <td colspan="3" class="text-center">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">活跃公告列表</h5>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>标题</th>
+                                        <th>创建时间</th>
+                                        <th>优先级</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-announcements-table">
+                                    <tr>
+                                        <td colspan="3" class="text-center">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 其他模块内容区（初始隐藏）-->
+        <div id="users-content" class="content-section d-none">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">用户管理</h5>
+                </div>
+                <div class="card-body">
+                    <div id="users-table-container">加载中...</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="announcements-content" class="content-section d-none">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">公告管理</h5>
+                    <button id="add-announcement-btn" class="btn btn-primary">新增公告</button>
+                </div>
+                <div class="card-body">
+                    <div id="announcements-table-container">加载中...</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="activities-content" class="content-section d-none">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">活动管理</h5>
+                    <button id="add-activity-btn" class="btn btn-primary">新增活动</button>
+                </div>
+                <div class="card-body">
+                    <div id="activities-table-container">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用模态框 -->
+    <div class="modal fade" id="common-modal" tabindex="-1" aria-labelledby="modal-title">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modal-title">编辑信息</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="modal-content">加载中...</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary" id="save-modal-btn">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.min.js"></script>
+    <script>
+        // 初始化变量
+        let currentModalType = null;
+        let currentId = null;
+        const modal = new bootstrap.Modal(document.getElementById('common-modal'));
+        
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 加载仪表盘数据
+            loadDashboardData();
+            
+            // 侧边栏导航
+            const sidebarLinks = document.querySelectorAll('.sidebar a[data-target]');
+            sidebarLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // 移除所有活跃状态
+                    sidebarLinks.forEach(l => l.classList.remove('active'));
+                    // 添加当前活跃状态
+                    this.classList.add('active');
+                    
+                    // 隐藏所有内容区域
+                    document.querySelectorAll('.content-section').forEach(section => {
+                        section.classList.add('d-none');
+                        section.classList.remove('active');
+                    });
+                    
+                    // 显示对应内容区域
+                    const targetId = this.getAttribute('data-target');
+                    const targetSection = document.getElementById(targetId);
+                    targetSection.classList.remove('d-none');
+                    targetSection.classList.add('active');
+                    
+                    // 加载对应模块数据
+                    if (targetId === 'users-content') {
+                        loadUsersData();
+                    } else if (targetId === 'announcements-content') {
+                        loadAnnouncementsData();
+                    } else if (targetId === 'activities-content') {
+                        loadActivitiesData();
+                    }
+                });
+            });
+            
+            // 退出登录按钮
+            document.getElementById('logout-btn').addEventListener('click', async function() {
+                try {
+                    const response = await fetch('/admin/logout', {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    if (data.status === 'success') {
+                        window.location.href = '/admin/login';
+                    }
+                } catch (error) {
+                    console.error('Logout error:', error);
+                }
+            });
+            
+            // 新增公告按钮
+            document.getElementById('add-announcement-btn').addEventListener('click', function() {
+                openAnnouncementModal();
+            });
+            
+            // 新增活动按钮
+            document.getElementById('add-activity-btn').addEventListener('click', function() {
+                openActivityModal();
+            });
+            
+            // 保存模态框按钮
+            document.getElementById('save-modal-btn').addEventListener('click', function() {
+                if (currentModalType === 'announcement') {
+                    saveAnnouncement();
+                } else if (currentModalType === 'activity') {
+                    saveActivity();
+                } else if (currentModalType === 'user') {
+                    saveUser();
+                }
+            });
+        });
+        
+        // 加载仪表盘数据
+        async function loadDashboardData() {
+            try {
+                // 获取用户统计
+                const usersResponse = await fetch('/admin/users');
+                const usersData = await usersResponse.json();
+                if (usersData.status === 'success') {
+                    document.getElementById('total-users').textContent = usersData.total;
+                    
+                    // 获取最近用户
+                    const recentUsersTable = document.getElementById('recent-users-table');
+                    recentUsersTable.innerHTML = '';
+                    usersData.data.slice(0, 5).forEach(user => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${user.username || '-'}</td>
+                            <td>${user.created_at}</td>
+                            <td>${user.membership}</td>
+                        `;
+                        recentUsersTable.appendChild(row);
+                    });
+                }
+                
+                // 获取会员统计
+                const membershipResponse = await fetch('/admin/memberships');
+                const membershipData = await membershipResponse.json();
+                if (membershipData.status === 'success') {
+                    const premiumCount = membershipData.data.premium || 0;
+                    const totalCount = document.getElementById('total-users').textContent;
+                    const rate = totalCount > 0 ? Math.round((premiumCount / totalCount) * 100) : 0;
+                    document.getElementById('premium-users').textContent = premiumCount;
+                    document.getElementById('premium-rate').textContent = rate + '%';
+                }
+                
+                // 获取公告统计
+                const announcementsResponse = await fetch('/admin/announcements');
+                const announcementsData = await announcementsResponse.json();
+                if (announcementsData.status === 'success') {
+                    document.getElementById('total-announcements').textContent = announcementsData.total;
+                    
+                    // 获取活跃公告
+                    const activeAnnouncementsResponse = await fetch('/admin/announcements?only_active=true');
+                    const activeAnnouncementsData = await activeAnnouncementsResponse.json();
+                    if (activeAnnouncementsData.status === 'success') {
+                        document.getElementById('active-announcements').textContent = activeAnnouncementsData.total;
+                        
+                        // 显示最近公告
+                        const recentAnnouncementsTable = document.getElementById('recent-announcements-table');
+                        recentAnnouncementsTable.innerHTML = '';
+                        activeAnnouncementsData.data.slice(0, 5).forEach(announcement => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${announcement.title}</td>
+                                <td>${announcement.created_at}</td>
+                                <td>${announcement.priority}</td>
+                            `;
+                            recentAnnouncementsTable.appendChild(row);
+                        });
+                    }
+                }
+                
+                // 获取活动统计
+                const activitiesResponse = await fetch('/admin/activities');
+                const activitiesData = await activitiesResponse.json();
+                if (activitiesData.status === 'success') {
+                    document.getElementById('total-activities').textContent = activitiesData.total;
+                    
+                    // 获取进行中活动
+                    const activeActivitiesResponse = await fetch('/admin/activities?current_only=true');
+                    const activeActivitiesData = await activeActivitiesResponse.json();
+                    if (activeActivitiesData.status === 'success') {
+                        document.getElementById('active-activities').textContent = activeActivitiesData.total;
+                    }
+                }
+            } catch (error) {
+                console.error('Load dashboard data error:', error);
+            }
+        }
+        
+        // 加载用户数据
+        async function loadUsersData() {
+            const container = document.getElementById('users-table-container');
+            container.innerHTML = '加载中...';
+            
+            try {
+                const response = await fetch('/admin/users');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let tableHTML = `
+                        <table class="table table-hover table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>用户名</th>
+                                    <th>邮箱</th>
+                                    <th>会员等级</th>
+                                    <th>状态</th>
+                                    <th>对话次数</th>
+                                    <th>注册时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    
+                    data.data.forEach(user => {
+                        const status = user.is_active ? '<span class="badge bg-success">活跃</span>' : '<span class="badge bg-danger">禁用</span>';
+                        tableHTML += `
+                            <tr>
+                                <td>${user.id}</td>
+                                <td>${user.username || '-'}</td>
+                                <td>${user.email || '-'}</td>
+                                <td>${user.membership}</td>
+                                <td>${status}</td>
+                                <td>${user.dialog_count}</td>
+                                <td>${user.created_at}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-info edit-user" data-id="${user.id}">编辑</button>
+                                    <button class="btn btn-sm btn-${user.is_active ? 'warning' : 'success'} toggle-user-status" data-id="${user.id}" data-status="${user.is_active}">${user.is_active ? '禁用' : '启用'}</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableHTML += `
+                            </tbody>
+                        </table>
+                        <div class="mt-3">
+                            <p>共 ${data.total} 条记录，第 ${data.page} / ${data.pages} 页</p>
+                        </div>
+                    `;
+                    
+                    container.innerHTML = tableHTML;
+                    
+                    // 添加编辑按钮事件
+                    document.querySelectorAll('.edit-user').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const userId = this.getAttribute('data-id');
+                            openUserModal(userId);
+                        });
+                    });
+                    
+                    // 添加状态切换按钮事件
+                    document.querySelectorAll('.toggle-user-status').forEach(btn => {
+                        btn.addEventListener('click', async function() {
+                            const userId = this.getAttribute('data-id');
+                            const currentStatus = this.getAttribute('data-status') === '1';
+                            
+                            try {
+                                const response = await fetch(`/admin/users/${userId}`, {
+                                    method: 'PUT',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ is_active: currentStatus ? 0 : 1 })
+                                });
+                                
+                                const data = await response.json();
+                                if (data.status === 'success') {
+                                    loadUsersData(); // 重新加载数据
+                                }
+                            } catch (error) {
+                                console.error('Toggle user status error:', error);
+                            }
+                        });
+                    });
+                }
+            } catch (error) {
+                container.innerHTML = '加载失败';
+                console.error('Load users data error:', error);
+            }
+        }
+        
+        // 加载公告数据
+        async function loadAnnouncementsData() {
+            const container = document.getElementById('announcements-table-container');
+            container.innerHTML = '加载中...';
+            
+            try {
+                const response = await fetch('/admin/announcements');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let tableHTML = `
+                        <table class="table table-hover table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>标题</th>
+                                    <th>优先级</th>
+                                    <th>状态</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    
+                    data.data.forEach(announcement => {
+                        const status = announcement.is_active ? '<span class="badge bg-success">活跃</span>' : '<span class="badge bg-secondary">已禁用</span>';
+                        tableHTML += `
+                            <tr>
+                                <td>${announcement.id}</td>
+                                <td>${announcement.title}</td>
+                                <td>${announcement.priority}</td>
+                                <td>${status}</td>
+                                <td>${announcement.created_at}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-info edit-announcement" data-id="${announcement.id}">编辑</button>
+                                    <button class="btn btn-sm btn-danger delete-announcement" data-id="${announcement.id}">删除</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableHTML += `
+                            </tbody>
+                        </table>
+                    `;
+                    
+                    container.innerHTML = tableHTML;
+                    
+                    // 添加编辑按钮事件
+                    document.querySelectorAll('.edit-announcement').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const announcementId = this.getAttribute('data-id');
+                            openAnnouncementModal(announcementId);
+                        });
+                    });
+                    
+                    // 添加删除按钮事件
+                    document.querySelectorAll('.delete-announcement').forEach(btn => {
+                        btn.addEventListener('click', async function() {
+                            if (confirm('确定要删除这条公告吗？')) {
+                                const announcementId = this.getAttribute('data-id');
+                                
+                                try {
+                                    const response = await fetch(`/admin/announcements/${announcementId}`, {
+                                        method: 'DELETE'
+                                    });
+                                    
+                                    const data = await response.json();
+                                    if (data.status === 'success') {
+                                        loadAnnouncementsData(); // 重新加载数据
+                                    }
+                                } catch (error) {
+                                    console.error('Delete announcement error:', error);
+                                }
+                            }
+                        });
+                    });
+                }
+            } catch (error) {
+                container.innerHTML = '加载失败';
+                console.error('Load announcements data error:', error);
+            }
+        }
+        
+        // 加载活动数据
+        async function loadActivitiesData() {
+            const container = document.getElementById('activities-table-container');
+            container.innerHTML = '加载中...';
+            
+            try {
+                const response = await fetch('/admin/activities');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let tableHTML = `
+                        <table class="table table-hover table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>标题</th>
+                                    <th>开始时间</th>
+                                    <th>结束时间</th>
+                                    <th>优先级</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    
+                    data.data.forEach(activity => {
+                        const status = activity.is_active ? '<span class="badge bg-success">活跃</span>' : '<span class="badge bg-secondary">已禁用</span>';
+                        tableHTML += `
+                            <tr>
+                                <td>${activity.id}</td>
+                                <td>${activity.title}</td>
+                                <td>${activity.start_time}</td>
+                                <td>${activity.end_time}</td>
+                                <td>${activity.priority}</td>
+                                <td>${status}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-info edit-activity" data-id="${activity.id}">编辑</button>
+                                    <button class="btn btn-sm btn-danger delete-activity" data-id="${activity.id}">删除</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableHTML += `
+                            </tbody>
+                        </table>
+                    `;
+                    
+                    container.innerHTML = tableHTML;
+                    
+                    // 添加编辑按钮事件
+                    document.querySelectorAll('.edit-activity').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const activityId = this.getAttribute('data-id');
+                            openActivityModal(activityId);
+                        });
+                    });
+                    
+                    // 添加删除按钮事件
+                    document.querySelectorAll('.delete-activity').forEach(btn => {
+                        btn.addEventListener('click', async function() {
+                            if (confirm('确定要删除这个活动吗？')) {
+                                const activityId = this.getAttribute('data-id');
+                                
+                                try {
+                                    const response = await fetch(`/admin/activities/${activityId}`, {
+                                        method: 'DELETE'
+                                    });
+                                    
+                                    const data = await response.json();
+                                    if (data.status === 'success') {
+                                        loadActivitiesData(); // 重新加载数据
+                                    }
+                                } catch (error) {
+                                    console.error('Delete activity error:', error);
+                                }
+                            }
+                        });
+                    });
+                }
+            } catch (error) {
+                container.innerHTML = '加载失败';
+                console.error('Load activities data error:', error);
+            }
+        }
+        
+        // 打开公告模态框
+        async function openAnnouncementModal(announcementId = null) {
+            currentModalType = 'announcement';
+            currentId = announcementId;
+            
+            const modalTitle = document.getElementById('modal-title');
+            const modalContent = document.getElementById('modal-content');
+            
+            if (announcementId) {
+                modalTitle.textContent = '编辑公告';
+                modalContent.innerHTML = '加载中...';
+                
+                // 获取公告详情
+                try {
+                    const response = await fetch(`/admin/announcements/${announcementId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        const announcement = data.data;
+                        modalContent.innerHTML = `
+                            <form id="announcement-form">
+                                <div class="mb-3">
+                                    <label for="announcement-title" class="form-label">标题</label>
+                                    <input type="text" class="form-control" id="announcement-title" value="${announcement.title}" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="announcement-content" class="form-label">内容</label>
+                                    <textarea class="form-control" id="announcement-content" rows="5" required>${announcement.content}</textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="announcement-priority" class="form-label">优先级</label>
+                                    <input type="number" class="form-control" id="announcement-priority" value="${announcement.priority}">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="announcement-active" class="form-label">状态</label>
+                                    <select class="form-control" id="announcement-active">
+                                        <option value="true" ${announcement.is_active ? 'selected' : ''}>活跃</option>
+                                        <option value="false" ${!announcement.is_active ? 'selected' : ''}>禁用</option>
+                                    </select>
+                                </div>
+                            </form>
+                        `;
+                    }
+                } catch (error) {
+                    modalContent.innerHTML = '加载失败';
+                    console.error('Load announcement detail error:', error);
+                }
+            } else {
+                modalTitle.textContent = '新增公告';
+                modalContent.innerHTML = `
+                    <form id="announcement-form">
+                        <div class="mb-3">
+                            <label for="announcement-title" class="form-label">标题</label>
+                            <input type="text" class="form-control" id="announcement-title" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="announcement-content" class="form-label">内容</label>
+                            <textarea class="form-control" id="announcement-content" rows="5" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="announcement-priority" class="form-label">优先级</label>
+                            <input type="number" class="form-control" id="announcement-priority" value="0">
+                        </div>
+                        <div class="mb-3">
+                            <label for="announcement-active" class="form-label">状态</label>
+                            <select class="form-control" id="announcement-active">
+                                <option value="true" selected>活跃</option>
+                                <option value="false">禁用</option>
+                            </select>
+                        </div>
+                    </form>
+                `;
+            }
+            
+            modal.show();
+        }
+        
+        // 打开活动模态框
+        async function openActivityModal(activityId = null) {
+            currentModalType = 'activity';
+            currentId = activityId;
+            
+            const modalTitle = document.getElementById('modal-title');
+            const modalContent = document.getElementById('modal-content');
+            
+            if (activityId) {
+                modalTitle.textContent = '编辑活动';
+                modalContent.innerHTML = '加载中...';
+                
+                // 获取活动详情
+                try {
+                    const response = await fetch(`/admin/activities/${activityId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        const activity = data.data;
+                        modalContent.innerHTML = `
+                            <form id="activity-form">
+                                <div class="mb-3">
+                                    <label for="activity-title" class="form-label">标题</label>
+                                    <input type="text" class="form-control" id="activity-title" value="${activity.title}" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="activity-description" class="form-label">描述</label>
+                                    <textarea class="form-control" id="activity-description" rows="5" required>${activity.description}</textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="activity-start" class="form-label">开始时间</label>
+                                    <input type="datetime-local" class="form-control" id="activity-start" value="${activity.start_time.replace(' ', 'T').slice(0, 16)}" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="activity-end" class="form-label">结束时间</label>
+                                    <input type="datetime-local" class="form-control" id="activity-end" value="${activity.end_time.replace(' ', 'T').slice(0, 16)}" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="activity-priority" class="form-label">优先级</label>
+                                    <input type="number" class="form-control" id="activity-priority" value="${activity.priority}">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="activity-active" class="form-label">状态</label>
+                                    <select class="form-control" id="activity-active">
+                                        <option value="true" ${activity.is_active ? 'selected' : ''}>活跃</option>
+                                        <option value="false" ${!activity.is_active ? 'selected' : ''}>禁用</option>
+                                    </select>
+                                </div>
+                            </form>
+                        `;
+                    }
+                } catch (error) {
+                    modalContent.innerHTML = '加载失败';
+                    console.error('Load activity detail error:', error);
+                }
+            } else {
+                modalTitle.textContent = '新增活动';
+                modalContent.innerHTML = `
+                    <form id="activity-form">
+                        <div class="mb-3">
+                            <label for="activity-title" class="form-label">标题</label>
+                            <input type="text" class="form-control" id="activity-title" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="activity-description" class="form-label">描述</label>
+                            <textarea class="form-control" id="activity-description" rows="5" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="activity-start" class="form-label">开始时间</label>
+                            <input type="datetime-local" class="form-control" id="activity-start" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="activity-end" class="form-label">结束时间</label>
+                            <input type="datetime-local" class="form-control" id="activity-end" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="activity-priority" class="form-label">优先级</label>
+                            <input type="number" class="form-control" id="activity-priority" value="0">
+                        </div>
+                        <div class="mb-3">
+                            <label for="activity-active" class="form-label">状态</label>
+                            <select class="form-control" id="activity-active">
+                                <option value="true" selected>活跃</option>
+                                <option value="false">禁用</option>
+                            </select>
+                        </div>
+                    </form>
+                `;
+            }
+            
+            modal.show();
+        }
+        
+        // 打开用户模态框
+        async function openUserModal(userId) {
+            currentModalType = 'user';
+            currentId = userId;
+            
+            const modalTitle = document.getElementById('modal-title');
+            const modalContent = document.getElementById('modal-content');
+            
+            modalTitle.textContent = '编辑用户';
+            modalContent.innerHTML = '加载中...';
+            
+            try {
+                const response = await fetch(`/admin/users/${userId}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const user = data.data;
+                    modalContent.innerHTML = `
+                        <form id="user-form">
+                            <div class="mb-3">
+                                <label for="user-username" class="form-label">用户名</label>
+                                <input type="text" class="form-control" id="user-username" value="${user.username || ''}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="user-email" class="form-label">邮箱</label>
+                                <input type="email" class="form-control" id="user-email" value="${user.email || ''}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="user-membership" class="form-label">会员等级</label>
+                                <select class="form-control" id="user-membership">
+                                    <option value="free" ${user.membership === 'free' ? 'selected' : ''}>免费</option>
+                                    <option value="premium" ${user.membership === 'premium' ? 'selected' : ''}>高级会员</option>
+                                    <option value="vip" ${user.membership === 'vip' ? 'selected' : ''}>VIP</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="user-active" class="form-label">状态</label>
+                                <select class="form-control" id="user-active">
+                                    <option value="1" ${user.is_active === 1 ? 'selected' : ''}>活跃</option>
+                                    <option value="0" ${user.is_active === 0 ? 'selected' : ''}>禁用</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">对话次数</label>
+                                <input type="text" class="form-control" value="${user.dialog_count}" disabled>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">注册时间</label>
+                                <input type="text" class="form-control" value="${user.created_at}" disabled>
+                            </div>
+                        </form>
+                    `;
+                }
+            } catch (error) {
+                modalContent.innerHTML = '加载失败';
+                console.error('Load user detail error:', error);
+            }
+            
+            modal.show();
+        }
+        
+        // 保存公告
+        async function saveAnnouncement() {
+            const title = document.getElementById('announcement-title').value;
+            const content = document.getElementById('announcement-content').value;
+            const priority = document.getElementById('announcement-priority').value;
+            const isActive = document.getElementById('announcement-active').value === 'true';
+            
+            const data = {
+                title,
+                content,
+                priority: parseInt(priority),
+                is_active: isActive
+            };
+            
+            try {
+                let response;
+                if (currentId) {
+                    // 更新公告
+                    response = await fetch(`/admin/announcements/${currentId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    // 创建公告
+                    response = await fetch('/admin/announcements', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+                }
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    modal.hide();
+                    loadAnnouncementsData();
+                }
+            } catch (error) {
+                console.error('Save announcement error:', error);
+            }
+        }
+        
+        // 保存活动
+        async function saveActivity() {
+            const title = document.getElementById('activity-title').value;
+            const description = document.getElementById('activity-description').value;
+            const startTime = document.getElementById('activity-start').value;
+            const endTime = document.getElementById('activity-end').value;
+            const priority = document.getElementById('activity-priority').value;
+            const isActive = document.getElementById('activity-active').value === 'true';
+            
+            // 转换时间格式
+            const formatDateTime = (dateStr) => {
+                const date = new Date(dateStr);
+                return date.toISOString().replace('T', ' ').slice(0, 19);
+            };
+            
+            const data = {
+                title,
+                description,
+                start_time: formatDateTime(startTime),
+                end_time: formatDateTime(endTime),
+                priority: parseInt(priority),
+                is_active: isActive
+            };
+            
+            try {
+                let response;
+                if (currentId) {
+                    // 更新活动
+                    response = await fetch(`/admin/activities/${currentId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    // 创建活动
+                    response = await fetch('/admin/activities', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+                }
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    modal.hide();
+                    loadActivitiesData();
+                }
+            } catch (error) {
+                console.error('Save activity error:', error);
+            }
+        }
+        
+        // 保存用户
+        async function saveUser() {
+            const username = document.getElementById('user-username').value;
+            const email = document.getElementById('user-email').value;
+            const membership = document.getElementById('user-membership').value;
+            const isActive = document.getElementById('user-active').value;
+            
+            const data = {
+                username: username || null,
+                email: email || null,
+                membership,
+                is_active: parseInt(isActive)
+            };
+            
+            try {
+                const response = await fetch(`/admin/users/${currentId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    modal.hide();
+                    loadUsersData();
+                }
+            } catch (error) {
+                console.error('Save user error:', error);
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/templates/admin/assets/js/admin.js"></script>
+</body>
+</html>

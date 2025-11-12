@@ -47,6 +47,16 @@ POST /api/trading/order
     "leverage": 10
 }
 ```
+{
+  "symbol": "ETHUSDT",
+  "side": "sell",
+  "order_type": "limit",
+  "price": 3450,
+  "quantity": 1.2,
+  "take_profit": 3300,
+  "stop_loss": 3550
+}
+
 
 **说明**：
 - 直接指定币种数量
