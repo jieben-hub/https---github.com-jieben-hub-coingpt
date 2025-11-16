@@ -75,7 +75,10 @@ def apple_login():
         return jsonify({"status": "error", "message": "登录验证失败"}), 401
     
     # 创建会话token
-    token = AppleAuthService.create_session_token(result['user_id'])
+    token = AppleAuthService.create_session_token(
+        result['user_id'],
+        result.get('username')
+    )
     
     # 存储token到会话
     session['token'] = token

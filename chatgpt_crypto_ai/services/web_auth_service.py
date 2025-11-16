@@ -111,7 +111,7 @@ class WebAuthService:
         }
     
     @classmethod
-    def create_session_token(cls, user_id):
+    def create_session_token(cls, user_id, username: str | None = None):
         """
         为用户创建JWT会话令牌
         
@@ -126,6 +126,9 @@ class WebAuthService:
             'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7),  # 7天有效期
             'iat': datetime.datetime.utcnow()
         }
+
+        if username:
+            payload['username'] = username
         
         token = jwt.encode(payload, SECRET_KEY, algorithm='HS256')
         return token

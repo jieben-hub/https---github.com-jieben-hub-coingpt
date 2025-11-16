@@ -262,7 +262,15 @@ class SymbolService:
         UserSymbol.add_symbol_for_user(user_id, symbol)
     
     @staticmethod
-    def get_user_symbols(user_id: int, limit: int = 5) -> List[str]:
+    def get_user_symbols(user_id: int, limit: Optional[int] = 5) -> List[str]:
         """获取用户最近使用的币种"""
-        symbols = UserSymbol.query.filter_by(user_id=user_id).order_by(UserSymbol.added_at.desc()).limit(limit).all()
+        query = UserSymbol.query.filter_by(user_id=user_id).order_by(UserSymbol.added_at.desc())
+        if limit:
+            query = query.limit(limit)
+        symbols = query.all()
         return [symbol.symbol for symbol in symbols]
+
+    @staticmethod
+    def remove_symbol_for_user(user_id: int, symbol: str) -> None:
+        """删除用户收藏的币种"""
+        UserSymbol.remove_symbol_for_user(user_id, symbol)

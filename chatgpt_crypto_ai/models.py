@@ -95,11 +95,20 @@ class UserSymbol(db.Model):
             new_symbol = cls(user_id=user_id, symbol=symbol)
             db.session.add(new_symbol)
             db.session.commit()
-    
+
     @classmethod
-    def get_user_symbols(cls, user_id, limit=5):
+    def get_user_symbols(cls, user_id, limit=None):
         """获取用户最近使用的币种"""
-        return cls.query.filter_by(user_id=user_id).order_by(cls.added_at.desc()).limit(limit).all()
+        query = cls.query.filter_by(user_id=user_id).order_by(cls.added_at.desc())
+        if limit:
+            query = query.limit(limit)
+        return query.all()
+
+    @classmethod
+    def remove_symbol_for_user(cls, user_id, symbol):
+        """删除用户收藏的币种"""
+        cls.query.filter_by(user_id=user_id, symbol=symbol).delete()
+        db.session.commit()
 
 
 class SessionFeedback(db.Model):

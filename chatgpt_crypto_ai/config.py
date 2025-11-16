@@ -23,6 +23,14 @@ EXCHANGE_SECRET = os.getenv('EXCHANGE_SECRET', '')
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
 
+# Cloudflare R2 配置
+R2_ENDPOINT_URL = os.getenv('R2_ENDPOINT_URL', '')
+R2_ACCESS_KEY_ID = os.getenv('R2_ACCESS_KEY_ID', '')
+R2_SECRET_ACCESS_KEY = os.getenv('R2_SECRET_ACCESS_KEY', '')
+R2_BUCKET_NAME = os.getenv('R2_BUCKET_NAME', '')
+R2_REGION = os.getenv('R2_REGION', 'auto')
+R2_PUBLIC_URL = os.getenv('R2_PUBLIC_URL', '')
+
 # Apple Sign In配置
 APPLE_CLIENT_ID = os.getenv('APPLE_CLIENT_ID', '')
 APPLE_TEAM_ID = os.getenv('APPLE_TEAM_ID', '')

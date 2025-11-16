@@ -114,38 +114,200 @@ CoinGPT提供的分析和建议仅供参考，不构成投资建议。用户应�
 
 [MIT License](LICENSE)
 
-## 📮 API接口说明
+## 📮 API 接口说明
 
-### 文字反馈接口
+> 除特别说明外，所有接口均返回如下结构的 JSON：
+>
+> ```json
+> {
+>   "status": "success" | "error",
+>   "data": {...},
+>   "message": "可选的提示信息"
+> }
+> ```
+>
+> 需要鉴权的接口必须通过 `Authorization: Bearer <token>` 或 Cookie 中的 `token` 携带登录态。
 
-- **接口地址**：`POST /api/feedback/text`
-- **认证要求**：需要登录（Bearer Token）
-- **请求参数（JSON）**：
-  - `content` (string)：反馈内容，必填
+### 认证与用户（`/api/auth`）
 
-- **请求示例**：
+| 方法 | 路径 | 说明 | 认证 |
+| --- | --- | --- | --- |
+| POST | `/register` | 用户名 + 密码注册，可选 `inviter_id` | 否 |
+| POST | `/login` | 用户名 + 密码登录 | 否 |
+| POST | `/apple/login` | Apple ID 登录，提交 `id_token` | 否 |
+| POST | `/logout` | 清除当前会话 | 否（但需 cookie） |
+| GET | `/user` | 获取当前用户信息 | 是 |
+| GET | `/sessions` | 分页获取用户会话列表（query: `limit`, `offset`） | 是 |
+| POST | `/sessions` | 创建新会话（受免费额度限制） | 是 |
+| DELETE | `/sessions/<session_id>` | 删除会话（需会员身份） | 是 |
+| GET | `/invite` | 获取邀请码及邀请人数 | 是 |
+| GET | `/invitees` | 获取邀请的用户列表 | 是 |
+| GET | `/usage` `/usage-stats` | 查询当前使用额度 | 是 |
 
-```json
-POST /api/feedback/text
-Authorization: Bearer <token>
+注册示例：
+
+```http
+POST /api/auth/register
 Content-Type: application/json
+
 {
-  "content": "希望增加更多币种的分析功能！"
+  "username": "demo",
+  "password": "P@ssw0rd",
+  "inviter_id": "COINGPT-123"
 }
 ```
 
-- **返回示例**：
+成功响应示例：
+
 ```json
 {
   "status": "success",
-  "message": "反馈已提交，感谢您的宝贵意见！"
+  "data": {
+    "user": {
+      "user_id": 8,
+      "username": "demo",
+      "membership": "free"
+    },
+    "token": "<JWT>"
+  }
 }
 ```
 
-- **错误返回**：
-```json
+### 聊天与会话（`/api/chat`）
+
+- `POST /api/chat/`
+  - Body：
+    ```json
+    {
+      "message": "分析下 BTC 四小时走势",
+      "session_id": 123,           // 可选，不传则自动创建
+      "stream": false               // 可选，true 时以 SSE 流式返回
+    }
+    ```
+  - 返回：`message`（普通模式）或 SSE 数据流（流式模式）。
+- `POST /api/chat/show_prompt`：仅返回意图提取用的 prompt、解析结果等调试信息。
+- `POST /api/chat/sessions`：创建新会话，返回 `session_id`。
+- `GET /api/chat/session/<session_id>`：获取指定会话的全部历史消息。
+
+### Prompt 调试接口（`/api/show_prompt`）
+
+与 `POST /api/chat/show_prompt` 功能一致，提供独立路由：
+
+```http
+POST /api/show_prompt/
+Authorization: Bearer <token>
 {
-  "status": "error",
-  "message": "反馈内容不能为空"
+  "message": "BTC 会涨吗？",
+  "session_id": 321
 }
 ```
+
+返回意图提取 prompt、结构化意图与传统解析结果。
+
+### 交易接口（`/api/trading`）
+
+- `GET /balance`：查询余额，支持 `coin`、`exchange` 查询参数。
+- `POST /order`：创建订单，支持按币量或 USDT 金额下单，并可一次性设置止盈/止损。
+
+  请求示例：
+  ```json
+  {
+    "symbol": "BTCUSDT",
+    "side": "buy",                 // buy/sell
+    "quantity_type": "usdt",       // usdt 或 coin，默认 coin
+    "amount": 100,                  // quantity_type 为 usdt 时必填
+    "order_type": "limit",         // market/limit
+    "price": 104500,
+    "position_side": "long",       // long/short（合约）
+    "leverage": 5,
+    "take_profit": 109500,
+    "stop_loss": 101400,
+    "exchange": "bybit"
+  }
+  ```
+
+  响应示例：
+  ```json
+  {
+    "status": "success",
+    "data": {
+      "order_id": "6dc2...",
+      "symbol": "BTCUSDT",
+      "side": "Buy",
+      "quantity": 0.00096,
+      "order_type": "Limit",
+      "status": "Created",
+      "position_side": "Long"
+    }
+  }
+  ```
+
+- `DELETE /order/<order_id>`：取消订单，需提供 `symbol`（query）。
+- `GET /orders`：获取当前挂单，可选 `symbol`、`exchange`。
+- `GET /positions`：查询持仓。
+- `POST /position/close`：平仓，Body 包含 `symbol`、`position_side`。
+- `POST /leverage`：设置杠杆，Body 包含 `symbol`、`leverage`。
+- `GET /pnl`：实时盈亏统计，可选 `symbol`、`exchange`。
+
+> 更深入的交易模块说明与示例可参考 `TRADING_MODULE_GUIDE.md`。
+
+### 交易历史接口（`/api/trading/history`）
+
+- `GET /pnl`：分页查询历史盈亏记录，支持 `limit`、`offset`、`symbol`、`exchange`、`start_date`、`end_date`。
+- `GET /pnl/summary`：盈亏汇总，支持 `period`（today/week/month/quarter/year/all）或自定义日期区间。
+- `GET /orders`：历史订单列表，支持 `status`、`symbol`、`exchange`。
+- `POST /pnl`：手动补录一条盈亏记录（通常由系统内部调用）。
+
+### 订阅接口（`/api/subscription`）
+
+- `POST /verify`：提交 `receipt_data` 验证并激活订阅。
+- `POST /restore`：恢复购买，同样需要 `receipt_data`。
+- `GET /status`：获取当前订阅状态。
+- `GET /products`：列出可购买的订阅产品。
+
+验证成功响应示例：
+
+```json
+{
+  "status": "success",
+  "message": "订阅激活成功",
+  "data": {
+    "product_id": "dev.zonekit.coingpt.Premium.year",
+    "transaction_id": "1000001234567890",
+    "expires_date": "2026-11-11T14:30:00",
+    "is_trial_period": false
+  }
+}
+```
+
+### 反馈接口（`/api/feedback`）
+
+- `POST /rate`：对整段会话评分，Body 包含 `session_id`、`rating` (1-5)、可选 `feedback`、`context`。
+- `POST /rate_message`：对单条 AI 回复评分，Body 需提供 `assistant_id` 或 `message_id`、`rating`。
+- `GET /analytics`：获取反馈统计，支持 `session_id` 过滤。
+- `GET /suggestions`：获取改进建议列表，可选 `count`。
+- `POST /text`：提交文字反馈，仅需 `content` 字段。
+
+### 收藏币种接口（`/api/favorites`）
+
+- `GET /api/favorites?limit=5`
+- `POST /api/favorites` Body：`{"symbol": "BTCUSDT"}`
+- `DELETE /api/favorites/<symbol>`
+
+响应结构参见前文示例。
+
+### 图片上传接口（`/api/upload`）
+
+- `POST /api/upload/image`
+  - 请求方式：`multipart/form-data`
+  - 字段：`file`（必填，图片文件）
+  - 成功返回上传后的 URL、对象键、MIME 类型。
+
+### Prompt/调试接口补充
+
+- `POST /api/show_prompt/`：详见上文。
+- `POST /api/chat/show_prompt`：同上，位于聊天命名空间内。
+
+---
+
+如需快速联调可结合 `TRADING_MODULE_GUIDE.md`、`TRADING_MODULE_SUMMARY.md` 中的示例脚本或直接使用 Postman/Thunder Client 参考以上请求体与响应格式。

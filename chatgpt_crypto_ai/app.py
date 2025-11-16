@@ -21,19 +21,37 @@ from routes.exchange_api_routes import exchange_api_bp
 from routes.trading_history_routes import trading_history_bp
 from routes.subscription_routes import subscription_bp
 from routes.admin_subscription_routes import admin_subscription_bp
+from routes.upload_routes import upload_bp
+from routes.favorite_routes import favorite_bp
 from services.trading_websocket_service import init_trading_websocket_service
 from models import db
 
 
 def setup_socketio(app):
     """Configure SocketIO and trading WebSocket services."""
+    try:
+        import eventlet  # type: ignore
+        async_mode = 'eventlet'
+        allow_upgrades = True
+        eventlet_available = True
+    except ImportError:
+        async_mode = 'threading'
+        allow_upgrades = False
+        eventlet_available = False
+
     socketio = SocketIO(
         app,
         cors_allowed_origins="*",
-        async_mode='threading',
+        async_mode=async_mode,
+        allow_upgrades=allow_upgrades,
         logger=True,
         engineio_logger=True
     )
+
+    if not eventlet_available:
+        app.logger.warning(
+            "Eventlet 未安装，SocketIO 将退回到长轮询模式，WebSocket 连接会被拒绝"
+        )
 
     trading_ws = init_trading_websocket_service(socketio, app)
     logger = logging.getLogger(__name__)
@@ -128,67 +146,65 @@ def setup_socketio(app):
 
     @socketio.on('disconnect')
     def handle_disconnect():
-        user_id = None
+        user_id = session.get('ws_user_id')
+        print(f"🔌 WebSocket客户端断开连接 - 来自: {request.remote_addr}")
+
         try:
             from flask_socketio import leave_room
 
-            user_id = session.get('ws_user_id')
+            if not user_id:
+                print("⚠️ 未认证用户断开连接")
+                return
 
-            print(f"🔌 WebSocket客户端断开连接 - 来自: {request.remote_addr}")
-            if user_id:
-                print(f"👤 用户{user_id}退出所有房间")
+            print(f"👤 用户{user_id}退出所有房间")
+            all_data_types = ['balance', 'positions', 'pnl', 'orders']
 
-                all_data_types = ['balance', 'positions', 'pnl', 'orders']
-                for data_type in all_data_types:
-                    room = f"{data_type}_{user_id}"
-                    try:
-                        leave_room(room)
-                        print(f"   🚪 退出房间: {room}")
-                    except Exception:
-                        pass
+            for data_type in all_data_types:
+                room = f"{data_type}_{user_id}"
+                try:
+                    leave_room(room)
+                    print(f"   🚪 退出房间: {room}")
+                except Exception:
+                    pass
 
-                trading_ws.unsubscribe_user(user_id, all_data_types)
+            trading_ws.unsubscribe_user(user_id, all_data_types)
 
-                if trading_ws.ticker_subscribers:
-                    symbols_to_remove = []
-                    for symbol, subscribers in list(trading_ws.ticker_subscribers.items()):
-                        if user_id in subscribers:
-                            symbols_to_remove.append(symbol)
-                            room = f"ticker_{symbol}_{user_id}"
-                            try:
-                                leave_room(room)
-                                print(f"   🚪 退出行情房间: {room}")
-                            except Exception:
-                                pass
+            if trading_ws.ticker_subscribers:
+                symbols_to_remove = []
+                for symbol, subscribers in list(trading_ws.ticker_subscribers.items()):
+                    if user_id in subscribers:
+                        symbols_to_remove.append(symbol)
+                        room = f"ticker_{symbol}_{user_id}"
+                        try:
+                            leave_room(room)
+                            print(f"   🚪 退出行情房间: {room}")
+                        except Exception:
+                            pass
 
-                    if symbols_to_remove:
-                        trading_ws.unsubscribe_ticker(user_id, symbols_to_remove)
+                if symbols_to_remove:
+                    trading_ws.unsubscribe_ticker(user_id, symbols_to_remove)
 
+            try:
                 from services.trading_service import TradingService
                 TradingService.clear_user_cache(user_id)
+            except Exception as cache_error:
+                # 清理缓存失败不应阻断断开逻辑
+                logger.debug(f"清理用户{user_id}缓存失败: {cache_error}")
 
-                print(f"✅ 用户{user_id}已退出所有房间并清理订阅")
-                logger.info(f"用户{user_id}断开连接并清理所有订阅")
-            else:
-                print(f"⚠️ 未认证用户断开连接")
+            print(f"✅ 用户{user_id}已退出所有房间并清理订阅")
+            logger.info(f"用户{user_id}断开连接并清理所有订阅")
 
-        except AssertionError as e:
-            if "write() before start_response" in str(e):
-                if user_id:
-                    print(f"✅ 用户{user_id}已断开连接（正常）")
-                else:
-                    print(f"✅ 客户端已断开连接（正常）")
+        except AssertionError as assertion_error:
+            # 捕获 write() before start_response 等断开异常，避免异常冒泡
+            if "write() before start_response" in str(assertion_error):
+                print("⚠️ 客户端断开过程中 SocketIO 写入被取消，已忽略")
             else:
-                print(f"⚠️ 断开连接处理出错: {e}")
-        except Exception as e:
-            error_msg = str(e)
-            if "write() before start_response" not in error_msg and "Broken pipe" not in error_msg:
-                print(f"⚠️ 断开连接处理出错: {e}")
+                print(f"⚠️ 断开连接处理出错: {assertion_error}")
+        except Exception as error:
+            if "write() before start_response" in str(error) or "Broken pipe" in str(error):
+                print("⚠️ 客户端断开导致写入失败，已忽略")
             else:
-                if user_id:
-                    print(f"✅ 用户{user_id}已断开连接（正常）")
-                else:
-                    print(f"✅ 客户端已断开连接（正常）")
+                print(f"⚠️ 断开连接处理出错: {error}")
 
     @socketio.on('subscribe_trading')
     def handle_subscribe_trading(data):
@@ -502,6 +518,8 @@ def create_app(enable_socketio: bool = True):
     app.register_blueprint(trading_history_bp)
     app.register_blueprint(subscription_bp)
     app.register_blueprint(admin_subscription_bp)
+    app.register_blueprint(upload_bp)
+    app.register_blueprint(favorite_bp)
     
     # 初始化管理员模块
     try:

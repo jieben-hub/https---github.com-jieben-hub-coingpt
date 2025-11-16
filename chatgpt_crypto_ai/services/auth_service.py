@@ -201,7 +201,7 @@ class AppleAuthService:
         return result
     
     @staticmethod
-    def create_session_token(user_id: int) -> str:
+    def create_session_token(user_id: int, username: Optional[str] = None) -> str:
         """
         创建会话令牌
         
@@ -216,6 +216,9 @@ class AppleAuthService:
             "iat": int(time.time()),
             "exp": int(time.time()) + 7 * 24 * 60 * 60  # 7天过期
         }
+
+        if username:
+            payload["username"] = username
         
         token = jwt.encode(payload, config.SECRET_KEY, algorithm="HS256")
         return token
